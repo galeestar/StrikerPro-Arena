@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -17,10 +18,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- SIDEBAR: MATCH & PHYSICS ENGINE SETTINGS ---
+# --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.title("⚽ Atlas FC 27 Deck")
-    st.caption("Configure live stadium atmosphere, AI difficulty & ball aerodynamics.")
+    st.caption("Configure stadium lighting, goalkeeper AI, and ball physics.")
 
     stadium_time = st.selectbox(
         "Stadium Lighting",
@@ -60,30 +61,42 @@ with st.sidebar:
     )
 
 sky_colors = {
-    "Champions Night (Floodlights)": ("#070d19", "#dbeafe", "1.15"),
-    "Golden Sunset": ("#2b142c", "#fdba74", "1.25"),
-    "Overcast Daylight": ("#334155", "#f8fafc", "1.35"),
+    "Champions Night (Floodlights)": ("#070d19", "#dbeafe", 1.15),
+    "Golden Sunset": ("#2b142c", "#fdba74", 1.25),
+    "Overcast Daylight": ("#334155", "#f8fafc", 1.35),
 }
 bg_hex, light_hex, light_int = sky_colors[stadium_time]
 
 gk_speeds = {
-    "Amateur (65)": "2.4",
-    "Semi-Pro (75)": "3.8",
-    "World Class (86)": "5.2",
-    "Legendary (94)": "7.0",
+    "Amateur (65)": 2.4,
+    "Semi-Pro (75)": 3.8,
+    "World Class (86)": 5.2,
+    "Legendary (94)": 7.0,
 }
 gk_react = gk_speeds[gk_difficulty]
 
 st.title("⚽ Atlas FC 27: 3D Football Stadium Engine")
-st.caption(f"Mode: **{stadium_time}** • Keeper AI: **{gk_difficulty}** • Click inside the pitch to play")
+st.caption("Mode: " + stadium_time + " • Keeper AI: " + gk_difficulty + " • Click inside the pitch to play")
 
-game_template = """
+# Safe JSON configuration passed directly to the browser engine
+engine_config = json.dumps(
+    {
+        "bgHex": bg_hex,
+        "lightHex": light_hex,
+        "lightInt": light_int,
+        "curveMult": curve_power,
+        "friction": pitch_speed,
+        "gkSpeed": gk_react,
+    }
+)
+
+html_head = """
 <!DOCTYPE html>
 <html>
 <head>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
-    body { overflow: hidden; background: __BG_HEX__; color: #fff; user-select: none; }
+    body { overflow: hidden; background: #070d19; color: #fff; user-select: none; }
     #hud-top {
       position: absolute; top: 16px; left: 16px; right: 16px;
       display: flex; justify-content: space-between; align-items: center; pointer-events: none;
@@ -140,16 +153,21 @@ game_template = """
   </div>
 
   <div id="focus-tip">Click pitch to activate keyboard controls</div>
+  <script id="engine-cfg" type="application/json">"""
 
+html_tail = """</script>
   <script src="https://cloudflare.com"></script>
   <script>
-    const CURVE_MULT = __CURVE_MULT__;
-    const FRICTION = __FRICTION__;
-    const GK_SPEED = __GK_SPEED__;
+    const CFG = JSON.parse(document.getElementById("engine-cfg").textContent);
+    const CURVE_MULT = CFG.curveMult;
+    const FRICTION = CFG.friction;
+    const GK_SPEED = CFG.gkSpeed;
+
+    document.body.style.background = CFG.bgHex;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("__BG_HEX__");
-    scene.fog = new THREE.Fog("__BG_HEX__", 70, 185);
+    scene.background = new THREE.Color(CFG.bgHex);
+    scene.fog = new THREE.Fog(CFG.bgHex, 70, 185);
 
     const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.1, 320);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -158,7 +176,7 @@ game_template = """
     document.body.appendChild(renderer.domElement);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const floodlight = new THREE.DirectionalLight("__LIGHT_HEX__", __LIGHT_INT__);
+    const floodlight = new THREE.DirectionalLight(CFG.lightHex, CFG.lightInt);
     floodlight.position.set(30, 50, 25);
     floodlight.castShadow = true;
     floodlight.shadow.mapSize.width = 2048;
@@ -252,13 +270,3 @@ game_template = """
     function resetPlay() {
       striker.position.set((Math.random() - 0.5) * 14, 1.0, -16);
       defender.position.set((Math.random() - 0.5) * 10, 1.0, -34);
-      ballPos.set(striker.position.x, 0.32, striker.position.z - 2.0);
-      ballVel.set(0, 0, 0);
-      ballSpin = 0;
-    }
-
-    window.addEventListener("keydown", (e) => {
-      keys[e.code] = true;
-      if (e.code === "Space") charging = true;
-      if (e.code === "KeyR") resetPlay();
-      if (e.code === "KeyT" && striker.position.distanceTo(ballPos) < 2.4) {
